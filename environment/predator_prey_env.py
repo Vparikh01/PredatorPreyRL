@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap
+from matplotlib.patches import Rectangle
 from environment.agent import Agent
 
 class PredatorPreyEnv:
@@ -11,6 +12,8 @@ class PredatorPreyEnv:
         self.max_steps = max_steps
         self.agents = []
         self.step_count = 0
+        self.fig, self.ax = plt.subplots(figsize=(6,6))  # Create figure once
+        plt.ion()  # Turn on interactive mode
 
     def reset(self):
         self.grid = np.zeros((self.grid_size, self.grid_size))
@@ -68,8 +71,20 @@ class PredatorPreyEnv:
         return self.grid.copy(), done
 
     def render(self):
+        self.ax.clear()  # Clear previous frame
+
+        # Show the grid colors
         cmap = ListedColormap(["white", "red", "blue"])
-        plt.imshow(self.grid, cmap=cmap, vmin=0, vmax=2)
-        plt.grid(True)
-        plt.pause(0.1)
-        plt.clf()
+        self.ax.imshow(self.grid, cmap=cmap, vmin=0, vmax=2)
+
+        # Draw borders around each cell
+        for i in range(self.grid_size):
+            for j in range(self.grid_size):
+                rect = Rectangle((j-0.5, i-0.5), 1, 1, fill=False, edgecolor='black', linewidth=1)
+                self.ax.add_patch(rect)
+
+        # Remove ticks
+        self.ax.set_xticks([])
+        self.ax.set_yticks([])
+
+        plt.pause(0.1)  # Pause to update display
