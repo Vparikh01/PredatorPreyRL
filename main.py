@@ -41,70 +41,68 @@
 
 # print("Episode finished.")
 
-import matplotlib.pyplot as plt
+import os
 import numpy as np
+import matplotlib.pyplot as plt
+import imageio.v2 as imageio
 
 from environment.predator_prey_env import PredatorPreyEnv
 from rl.q_learning import QLearningAgent
 
-# SETUP
-grid_size = 10
-env = PredatorPreyEnv(grid_size=grid_size, num_predators=1, num_prey=1, max_steps=50)
+# ──────────────────────────────────────────────
+# CONFIG
+# ──────────────────────────────────────────────
+GRID_SIZE   = 10
+MAX_STEPS   = 50
+EPISODES    = 5000
+GIF_DIR     = "gifs"
+GIF_PATH    = os.path.join(GIF_DIR, "episode.gif")
+GIF_FPS     = 5
 
-agent = QLearningAgent(grid_size=grid_size)
+os.makedirs(GIF_DIR, exist_ok=True)
 
-episodes = 5000
+# ──────────────────────────────────────────────
+# TRAINING
+# ──────────────────────────────────────────────
+env   = PredatorPreyEnv(grid_size=GRID_SIZE, num_predators=1, num_prey=1, max_steps=MAX_STEPS)
+agent = QLearningAgent(grid_size=GRID_SIZE)
 
-
-# TRAINING LOOP
 print("Training Q-learning...")
 
-for ep in range(episodes):
+for ep in range(EPISODES):
     env.reset()
 
     for step in range(env.max_steps):
-
-        prey_list = [a for a in env.agents if a.type == "prey"]
         pred_list = [a for a in env.agents if a.type == "predator"]
+        prey_list = [a for a in env.agents if a.type == "prey"]
 
-        if len(prey_list) == 0:
+        if not prey_list:
             break
 
-        pred = pred_list[0]
-        prey = prey_list[0]
-
+        pred  = pred_list[0]
+        prey  = prey_list[0]
         state = agent.get_state(pred.position, prey.position)
 
         action = agent.choose_action(state)
-        actions = [action]
+        _, done = env.step(predator_actions=[action])
 
-        _, done = env.step(predator_actions=actions)
-
-        prey_list = [a for a in env.agents if a.type == "prey"]
         pred_list = [a for a in env.agents if a.type == "predator"]
+        prey_list = [a for a in env.agents if a.type == "prey"]
 
-        # terminal
-        if len(prey_list) == 0:
-            reward = 10
-            next_state = state
-            agent.update(state, action, reward, next_state)
+        # Prey was caught this step
+        if not prey_list:
+            agent.update(state, action, reward=10, next_state=state)
             break
 
-        pred = pred_list[0]
-        prey = prey_list[0]
-
+        pred       = pred_list[0]
+        prey       = prey_list[0]
         next_state = agent.get_state(pred.position, prey.position)
 
-        # REWARD SHAPING
-        prev_dist = abs(state[0]) + abs(state[1])
-        new_dist = abs(next_state[0]) + abs(next_state[1])
+        # Reward shaping: encourage closing distance
+        prev_dist = abs(state[0])      + abs(state[1])
+        new_dist  = abs(next_state[0]) + abs(next_state[1])
 
-        reward = -1  # step penalty
-
-        if new_dist < prev_dist:
-            reward += 0.5
-        else:
-            reward -= 0.5
+        reward = -1 + (0.5 if new_dist < prev_dist else -0.5)
 
         agent.update(state, action, reward, next_state)
 
@@ -114,37 +112,55 @@ for ep in range(episodes):
     agent.decay_epsilon()
 
     if ep % 500 == 0:
-        print(f"Episode {ep}, epsilon={agent.epsilon:.3f}")
+        print(f"  Episode {ep:>5} | epsilon = {agent.epsilon:.3f}")
 
-print("Training finished.")
+print("Training finished.\n")
+
+def capture_frame(fig: plt.Figure) -> np.ndarray:
+    fig.canvas.draw()
+
+    buf = np.asarray(fig.canvas.buffer_rgba())
+
+    return buf[..., :3].copy()
 
 
-# TESTING
-policy = agent.get_policy()
+def run_and_save_gif(env, agent, path: str, fps: int = 5) -> None:
 
-plt.ion()
-env.reset()
+    policy = agent.get_policy()
+    frames = []
 
-for _ in range(env.max_steps):
+    plt.ioff()
+    env.reset()
 
-    prey_list = [a for a in env.agents if a.type == "prey"]
-    pred_list = [a for a in env.agents if a.type == "predator"]
+    for _ in range(env.max_steps):
 
-    if len(prey_list) == 0:
-        break
+        pred_list = [a for a in env.agents if a.type == "predator"]
+        prey_list = [a for a in env.agents if a.type == "prey"]
 
-    pred = pred_list[0]
-    prey = prey_list[0]
+        if not prey_list:
+            break
 
-    state = agent.get_state(pred.position, prey.position)
+        pred = pred_list[0]
+        prey = prey_list[0]
 
-    action = policy.get(state, np.random.randint(5))
-    actions = [action]
+        state = agent.get_state(pred.position, prey.position)
 
-    _, done = env.step(predator_actions=actions)
-    env.render()
+        action = policy.get(state, np.random.randint(5))
+        _, done = env.step(predator_actions=[action])
 
-    if done:
-        break
+        env.render()
 
-print("Done.")
+        frames.append(capture_frame(env.fig))
+
+        if done or not [a for a in env.agents if a.type == "prey"]:
+            for _ in range(3):
+                frames.append(frames[-1])
+            break
+
+    plt.close("all")
+
+    imageio.mimsave(path, frames, fps=fps)
+    print(f"GIF saved → {path} ({len(frames)} frames)")
+
+
+# run_and_save_gif(env, agent, path=GIF_PATH, fps=GIF_FPS)
